@@ -3,7 +3,12 @@ import os.path
 import pickle
 import json
 import datetime
-import readline
+from importlib import util
+readline_found = False
+#from https://stackoverflow.com/a/14050282
+if util.find_spec("readline"):
+    import readline
+    readline_found = True
 
 taskfile = "tasks.txt"
 archivedir = "completed_tasks"
@@ -154,11 +159,17 @@ def edit_task(task,tasklist):
         tasklist.remove(task)
         tasklist.add(task)
     if selection == "l":
-        readline.add_history(task.label)
-        task.label = input("Please input new label(Arrow up for old label): ")
+        message = "Please input new label"
+        if readline_found:
+            readline.add_history(task.label)
+            message += "(Arrow up for old label)"
+        task.label = input(message+": ")
     if selection == "c":
-        readline.add_history(task.comment)
-        task.comment = input("Please input new comment(Arrow up for old comment): ")
+        message = "Please input new comment"
+        if readline_found:
+            readline.add_history(task.comment)
+            message += "(Arrow up for old comment)"
+        task.comment = input(message+": ")
 
 def file_exists_and_is_not_empty(filename):
     return os.path.exists(filename) and os.path.isfile(filename) and os.stat(filename).st_size != 0
@@ -189,9 +200,9 @@ while True:
     if selection == "ff":
         free_form = input("priority:Task label[->Task 2 label[-> ....]]")
         priority_str,tasklabels = free_form.split(":",1)
-        print(priority_str,tasklabels)
+        #print(priority_str,tasklabels)
         (tasklabel,sep,rest) = tasklabels.partition("->")
-        print(tasklabel,"Sept:",sep,"Rest:",rest)
+        #print(tasklabel,"Sept:",sep,"Rest:",rest)
         prio = int(priority_str)
         tasklist.add(Task(tasklabel,prio))
         if sep != "":
