@@ -3,4 +3,4 @@ a small python program to manage my tasks.
 ```
 python tasklist.py
 ```
-should run on linux, ... have to make it run on windows, too.
+runs on python > 3.4, lower I do not know.
