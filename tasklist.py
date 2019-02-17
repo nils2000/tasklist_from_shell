@@ -23,85 +23,54 @@ class Task:
     def __init__(self,label,priority):
         self.label = label
         self.priority = priority
-        self.next = None
-        self.prev = None
         self.done_date = None
         self.comment = ""
     def __repr__(self):
         return "Task: label: " + self.label + " priority: " + str(self.priority)
-    def add(self,new_task,sorting_function):
-        """will return either self or new_task, whichever is more important
-        """
-        [t1,t2] = sorted([self,new_task],key=sorting_function.key_function,reverse=sorting_function.reverse)
-        #print(t1,t2)
-        t1.add_below(t2,sorting_function)
-        return t1
-    def add_below(self,less_important_task,sorting_function):
-        if self.next == None:
-            self.next = less_important_task
-            less_important_task.prev = self
-        else:
-            self.next = self.next.add(less_important_task,sorting_function)
-            self.next.prev = self
     def finished(self):
-        ret = self.next
-        self.next = None
-        self.prev = None
+        """cleanup before task is archieved"""
         self.done_date = str(datetime.datetime.now())
-        return ret
+        if hasattr(self,"group"):
+            if self.group != None:
+                if self.group.name != "":
+                    self.group = self.group.name
+            else:
+                delattr(self,"group")
 
 class TaskList:
     def __init__(self):
+        self.tasks = []
         self.first = None
     def add(self,new_task):
-        if self.first == None:
-            self.first = new_task
-        else:
-            new_first = self.first.add(new_task,self.sorting_function)
-            self.first = new_first
+        self.tasks.append(new_task)
+        self.task_priority_changed()
+    def task_priority_changed(self):
+        self.tasks = sorted(self.tasks,key=lambda task:task.priority,reverse=True)
+        self.first = self.tasks[0]
     def remove(self,task):
-        p = task.prev
-        n = task.next
-        task.prev = None
-        task.next = None
-        if p == None and n == None:
+        self.tasks.remove(task)
+        if len(self.tasks) == 0:
             self.first = None
-            return task
-        if p == None:
-            self.first = n
-            n.prev = None
-            return task
-        if n == None:
-            p.next = None
-            return task
-        p.next = n
-        n.prev = p
-        return task
+        else:
+            self.first = self.tasks[0]
     def is_empty(self):
         return (self.first == None)
     def first_task_finished(self):
         old_first = self.first
-        self.first = self.first.finished()
+        self.remove(old_first)
+        old_first.finished()
         archive_task(old_first)
-        del old_first
     def get_first(self):
-        if self.first == None:
-            self.first = read_task()
+        if self.is_empty():
+            self.add(read_task())
         return self.first
-    def tasks(self):
-        if self.first != None:
-            yield(self.first)
-            next_task = self.first.next
-            while next_task != None:
-                yield(next_task)
-                next_task = next_task.next
 
 class TaskGroup():
     def __init__(self,name):
         self.name = name
         self.members = []
     def add(self,task):
-        if hasattr(task,"group"):
+        if hasattr(self,"group"):
             raise NotImplementedError("Tasks should only belong to one group, use label instead")
         else:
             self.members.append(task)
@@ -126,7 +95,7 @@ def read_task():
     task = Task(label,priority)
     return task
 
-def tasklist_from_file(filename,sort_func):
+def tasklist_from_file(filename):
     """returns a stored tasklist or an empty tasklist"""
     tasklist = None
     if file_exists_and_is_not_empty(filename):
@@ -134,11 +103,9 @@ def tasklist_from_file(filename,sort_func):
             tasklist = pickle.load(fh)
     if tasklist == None:
         tasklist = TaskList()
-    tasklist.sorting_function = sort_func
     return tasklist
 
 def write_tasklist_to_file(tasklist,filename):
-    tasklist.sorting_function = None
     with open(filename,"wb") as fh:
         pickle.dump(tasklist,fh)
 
@@ -146,18 +113,30 @@ def display_task(task):
     print("priority: "+ str(task.priority))
     print("label: "+ task.label)
     try:
-        print("comment: "+ task.comment)
+        if task.comment != "":
+            print("comment: "+ task.comment)
     except AttributeError:
-        task.comment = ""
-        print("comment: "+ task.comment)
+        pass
+    try:
+        if task.group != None:
+            if task.group.name != "":
+                print("group: " +task.group.name)
+    except AttributeError:
+        pass
 
 def edit_task(task,tasklist):
     selection = input("(p:priority/l:label/c:comment)")
     if selection == "p":
-        readline.insert_text(str(task.priority))
-        task.priority = int(input("Please input new priority: "))
-        tasklist.remove(task)
-        tasklist.add(task)
+        delta = int(input("Please input new priority: ")) - task.priority
+        tasks = list()
+        if hasattr(task,"group"):
+            tasks = task.group.members
+        else:
+            tasks = [task,]
+        print(tasks)
+        for t in tasks:
+            t.priority += delta
+        tasklist.task_priority_changed()
     if selection == "l":
         message = "Please input new label"
         if readline_found:
@@ -174,7 +153,7 @@ def edit_task(task,tasklist):
 def file_exists_and_is_not_empty(filename):
     return os.path.exists(filename) and os.path.isfile(filename) and os.stat(filename).st_size != 0
 
-tasklist = tasklist_from_file(taskfile,SortingFunction(function=lambda task:task.priority,reverse=True))
+tasklist = tasklist_from_file(taskfile)
 selection = ""
 while True:
     task = tasklist.get_first()
@@ -195,18 +174,27 @@ while True:
         edit_task(task,tasklist)
         continue
     if selection == "l":
-        for t in tasklist.tasks():
+        for t in tasklist.tasks:
             display_task(t)
     if selection == "ff":
-        free_form = input("priority:Task label[->Task 2 label[-> ....]]")
+        free_form = input("[Group name:]priority:Task label[->Task 2 label[-> ....]]")
         priority_str,tasklabels = free_form.split(":",1)
-        #print(priority_str,tasklabels)
+        groupname = ""
+        try:
+            prio = int(priority_str)
+            #print(priority_str,tasklabels)
+        except ValueError:
+            groupname = priority_str
+            priority_str,tasklabels = tasklabels.split(":",1)
+            prio = int(priority_str)
         (tasklabel,sep,rest) = tasklabels.partition("->")
         #print(tasklabel,"Sept:",sep,"Rest:",rest)
-        prio = int(priority_str)
-        tasklist.add(Task(tasklabel,prio))
-        if sep != "":
-            taskgroup = TaskGroup("")
+        t = Task(tasklabel,prio)
+        tasklist.add(t)
+        if sep == "":
+            continue
+        taskgroup = TaskGroup(groupname)
+        taskgroup.add(t)
         #create new Task and task group
         while(sep == "->"):
         #create new Task and add to task group with increased priority each time
